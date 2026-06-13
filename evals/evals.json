@@ -1,0 +1,51 @@
+{
+  "skill_name": "pharos-tx-guardrail",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "I'm about to swap 500 USDC for PHRS on Pharos DEX. Target contract: 0xE0BE08c77f415F577A1B3A9aD7a1Df1479564ec8, calldata: 0x38ed173900000000000000000000000000000000000000000000000000000000001dcd650000000000000000000000000000000000000000000000000000000001d8f2a800000000000000000000000000000000000000000000000000000000000000a0000000000000000000000000abcdef1234567890abcdef1234567890abcdef1200000000000000000000000000000000000000000000000000000000ffffffff. Please run the guardrail check before I send this.",
+      "expected_output": "Full risk assessment with score 0-100, all 6 checks listed with pass/fail, recommendation to PROCEED, WARN, or BLOCK, and simulation result",
+      "assertions": [
+        "Risk score is shown as a number between 0 and 100",
+        "At least 4 individual checks are listed with their findings",
+        "Recommendation is one of: PROCEED, WARN AND CONFIRM, or BLOCK",
+        "Simulation result is shown (success or revert reason)",
+        "Function selector 0x38ed1739 is identified (swapExactTokensForTokens or similar)"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Check this transaction before I approve: I want to call approve on USDC (0xE0BE08c77f415F577A1B3A9aD7a1Df1479564ec8) for the maximum uint256 amount. The spender is 0xDeaDbeefdEAdbeefdEadbEEFdeadbeEFdEaDbeeF. Calldata: 0x095ea7b3000000000000000000000000deadbeefdEAdbeefdEadbEEFdeadbeEFdEaDbeeF ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "expected_output": "BLOCK or HIGH/CRITICAL rating due to unlimited approval. Clear warning about permanent access. Advice to use exact amount instead.",
+      "assertions": [
+        "Unlimited approval flag is detected and reported",
+        "Risk score is >= 40 (at minimum, from the unlimited approval alone)",
+        "Spender address is shown in the report",
+        "User is advised to approve only the exact amount needed",
+        "Recommendation is WARN AND CONFIRM or BLOCK"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Is this contract safe to interact with? 0x0000000000000000000000000000000000000001 — I want to deposit 100 USDC there.",
+      "expected_output": "Contract check shows this is a precompile (very short bytecode), score reflects risk, verification check runs",
+      "assertions": [
+        "Contract existence check is performed with cast code",
+        "Bytecode size is shown",
+        "Risk level reflects the unusual nature of a precompile address",
+        "Report is shown to user before any deposit action"
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "Before I execute this transferOwnership call on my contract upgrade, please run the guardrail. Target: 0x838800b758277CC111B2d48Ab01e5E164f8E9471, calldata: 0xf2fde38b000000000000000000000000abcdef1234567890abcdef1234567890abcdef12",
+      "expected_output": "HIGH or CRITICAL risk — selector 0xf2fde38b is transferOwnership. Score >= 35 from selector alone. Clear warning about ownership transfer.",
+      "assertions": [
+        "Selector 0xf2fde38b is identified as transferOwnership(address)",
+        "Risk score is >= 35",
+        "Warning explicitly mentions this is an ownership transfer",
+        "New owner address is extracted and shown from calldata"
+      ]
+    }
+  ]
+}
