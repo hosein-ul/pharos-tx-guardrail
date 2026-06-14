@@ -17,19 +17,35 @@ unlimited approval detection logic, and honeypot indicators.
 ## Dangerous Function Selectors
 
 These selectors indicate high-privilege operations or known exploit patterns.
-The guardrail adds +35 to the risk score for any of these.
 
-| Selector | Signature | Risk Category | Why Dangerous |
+`DANGEROUS_AUTO_BLOCK` set (auto-promote to score ≥70 per Override Rule #3):
+- `0x8f283970`, `0x13af4035` — ownership theft
+- `0x4f1ef286`, `0x3659cfe6` — proxy upgrade (replaces implementation)
+- `0x9dc29fac` — burn(address,uint256) (forced burn)
+
+| Selector | Signature | Risk Category | Score Behavior |
 |----------|-----------|--------------|--------------|
-| `0x8f283970` | `changeOwner(address)` | CRITICAL | Direct ownership theft — replaces contract owner |
-| `0x13af4035` | `setOwner(address)` | CRITICAL | Alternative ownership transfer pattern |
-| `0xf2fde38b` | `transferOwnership(address)` | HIGH | OpenZeppelin Ownable — only legitimate in admin workflows |
-| `0x715018a6` | `renounceOwnership()` | HIGH | Permanently removes ownership — irreversible |
-| `0x9dc29fac` | `burn(address,uint256)` | HIGH | Forced token burn from any address — used in exploits |
-| `0x00f714ce` | `withdraw(uint256,address)` | MEDIUM | Triggers withdrawals — verify the target address |
-| `0x4f1ef286` | `upgradeToAndCall(address,bytes)` | HIGH | Proxy upgrade — can replace contract implementation |
-| `0x3659cfe6` | `upgradeTo(address)` | HIGH | Proxy upgrade — can replace contract implementation |
-| `0x42966c68` | `burn(uint256)` | LOW-MEDIUM | Self-burn, legitimate in some protocols |
+| `0x8f283970` | `changeOwner(address)` | CRITICAL | **+70 auto-block** — Direct ownership theft |
+| `0x13af4035` | `setOwner(address)` | CRITICAL | **+70 auto-block** — Alt ownership transfer |
+| `0x4f1ef286` | `upgradeToAndCall(address,bytes)` | HIGH | **+70 auto-block** — Proxy upgrade |
+| `0x3659cfe6` | `upgradeTo(address)` | HIGH | **+70 auto-block** — Proxy upgrade |
+| `0x9dc29fac` | `burn(address,uint256)` | HIGH | **+70 auto-block** — Forced burn from any addr |
+| `0xf2fde38b` | `transferOwnership(address)` | HIGH | +35 — OpenZeppelin Ownable |
+| `0x715018a6` | `renounceOwnership()` | HIGH | +35 — Irreversible ownership removal |
+| `0x00f714ce` | `withdraw(uint256,address)` | MEDIUM | +35 — Withdrawals to address |
+| `0x42966c68` | `burn(uint256)` | LOW-MEDIUM | +15 — Self-burn (often legit) |
+| `0x40c10f19` | `mint(address,uint256)` | MEDIUM | +20 — Token minting (verify caller is privileged) |
+| `0xa9059cbb` | `transfer(address,uint256)` | SAFE | +0 — Standard ERC-20 transfer |
+| `0x23b872dd` | `transferFrom(address,address,uint256)` | SAFE | +0 — Standard ERC-20 transferFrom |
+| `0x095ea7b3` | `approve(address,uint256)` | DEPENDS | See Check 4 (unlimited detection) |
+| `0xd0e30db0` | `deposit()` | SAFE | +0 — Common WETH/vault wrap |
+| `0x2e1a7d4d` | `withdraw(uint256)` | SAFE | +0 — Common vault unwrap |
+| `0x38ed1739` | `swapExactTokensForTokens(...)` | SAFE | +0 — Uniswap V2 swap |
+| `0x7ff36ab5` | `swapExactETHForTokens(...)` | SAFE | +0 — Uniswap V2 ETH swap |
+| `0x4cdad506` | `previewRedeem(uint256)` | SAFE | +0 — ERC-4626 view (read-only) |
+| `0x01e1d114` | `totalAssets()` | SAFE | +0 — ERC-4626 view |
+| `0x6e553f65` | `deposit(uint256,address)` | SAFE | +0 — ERC-4626 deposit |
+| `0xba087652` | `redeem(uint256,address,address)` | SAFE | +0 — ERC-4626 redeem |
 
 ---
 

@@ -40,11 +40,16 @@ Each check below documents exactly what to run and how to interpret the result.
 **Purpose**: Detect transactions that will revert. A reverting transaction suggests wrong
 calldata, wrong contract, wrong state — any of which could mean the agent hallucinated the target.
 
+> **CRITICAL**: `--from <sender>` is **MANDATORY** for any ERC-20 / stateful call. Without
+> `from`, the simulator uses `address(0)` as msg.sender, and most ERC-20 calls (including
+> `approve`, `transfer`, `transferFrom`) will revert with "approve from the zero address" or
+> equivalent — giving a FALSE NEGATIVE simulation result.
+
 **Command Template**
 
 ```bash
 cast call <target> <calldata> \
-  [--from <sender>] \
+  --from <sender> \
   [--value <value_wei>] \
   --rpc-url <rpc>
 ```
@@ -55,9 +60,12 @@ cast call <target> <calldata> \
 |-----------|------|----------|-------------|
 | `<target>` | address | Yes | Contract address being called |
 | `<calldata>` | hex | Yes | ABI-encoded function call (0x-prefixed) |
-| `<sender>` | address | No | Simulated caller address |
+| `<sender>` | address | **Yes** | Simulated caller. Use the actual wallet that will send the tx. |
 | `<value_wei>` | uint256 | No | Native token amount in wei (omit if 0) |
 | `<rpc>` | URL | Yes | From `assets/networks.json` |
+
+**If no sender is provided by the user**: the agent MUST ask for the wallet address before
+running this check. Don't fall back to `address(0)` — it gives misleading results.
 
 **Output Parsing**
 
@@ -203,7 +211,7 @@ If calldata (lowercased, 0x stripped) contains MAX_UINT256 → unlimited approva
 |---------|-------------|
 | Not an approval transaction | +0 |
 | Approval with specific amount | +0 (safe pattern) |
-| Approval with MAX_UINT256 | +40 |
+| Approval with MAX_UINT256 | **+70** (auto-promotes to HIGH/BLOCK per override rule #1) |
 
 **Agent Guidelines**
 
@@ -316,14 +324,27 @@ cast call $FEED "latestAnswer()(int256)" --rpc-url <rpc>
 
 ## Risk Score Computation
 
-After all checks complete, compute total score:
-
+### Step 1 — Sum base scores
 ```
 total = sum of all score_delta values from checks above
-total = min(100, max(0, total))
 ```
 
-Map to level:
+### Step 2 — Apply override rules (force minimum scores)
+```
+if unlimited_approval_detected:
+    total = max(total, 70)        # auto-promote to HIGH/BLOCK
+if contract_code == "0x":
+    total = max(total, 85)        # auto-promote to CRITICAL
+if selector in DANGEROUS_AUTO_BLOCK:  # see risk-patterns.md
+    total = max(total, 70)
+if simulation_reverted and value_wei > 0:
+    total = max(total, 50)
+```
+
+### Step 3 — Clamp and map to level
+```
+total = min(100, max(0, total))
+```
 
 | Score | Level | Emoji | Recommendation |
 |-------|-------|-------|---------------|
@@ -332,3 +353,84 @@ Map to level:
 | 50–69 | MEDIUM | ⚠️ | WARN AND CONFIRM |
 | 70–84 | HIGH | 🔴 | BLOCK (explain each flag) |
 | 85–100 | CRITICAL | 🚨 | BLOCK |
+
+---
+
+## Worked Example
+
+User: "I'm about to approve unlimited USDC to Faroswap router."
+
+### Inputs
+```
+target   = 0xc879c018db60520f4355c26ed1a6d572cdac1815  # USDC on Pharos mainnet
+calldata = 0x095ea7b3000000000000000000000000a5ca5fbe34e444f366b373170541ec6902b0f75c
+           ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+from     = 0xUSER_WALLET                # MUST be provided
+network  = mainnet
+RPC      = https://rpc.pharos.xyz
+```
+
+### Check execution
+
+```bash
+# Check 1: Simulate (note: --from is mandatory)
+cast call $TARGET $CALLDATA --from $FROM --rpc-url $RPC
+# Result: 0x0000000000000000000000000000000000000000000000000000000000000001 (true)
+# Score delta: +0 (simulation succeeded)
+
+# Check 2: Contract code
+cast code $TARGET --rpc-url $RPC | wc -c
+# Result: ~2440 chars = 1219 bytes (proxy contract)
+# Score delta: +0
+
+# Check 3: Selector
+echo "Selector: 0x095ea7b3 = approve(address,uint256) — see Check 4"
+
+# Check 4: Unlimited approval check
+# calldata contains "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff" → YES
+# Score delta: +70 → triggers Override Rule #1
+
+# Check 5: Value = 0, skip
+
+# Check 6: Gas estimate
+cast estimate $TARGET $CALLDATA --from $FROM --rpc-url $RPC
+# Result: 71897 gas → ~$0.001 at current gas price
+# Score delta: +0
+```
+
+### Final score
+
+```
+base_total = 0 + 0 + 0 + 70 + 0 + 0 = 70
+override_applied: unlimited approval → max(70, 70) = 70
+final_score = 70 → HIGH 🔴 → BLOCK
+```
+
+### Output to user
+
+```
+🛡️ Pharos Transaction Guardrail
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Target:      0xc879c018...1815 (USDC on Pharos mainnet)
+Function:    approve(address,uint256)
+Value:       0 PROS
+Network:     Pacific Mainnet (1672)
+
+Risk Score:  70/100 — HIGH 🔴
+Action:      BLOCK
+
+Checks:
+  ✅ simulation: succeeded (approve returns true)
+  ✅ contract_exists: real contract, 1219 bytes
+  ✅ selector: approve(address,uint256) — known ERC-20 standard
+  🔴 unlimited_approval: UNLIMITED approval to 0xa5ca5fbe...0f75c (Faroswap Router).
+     This gives the spender permanent, unrestricted access to ALL your USDC,
+     now and in the future. If Faroswap is exploited, your USDC can be drained.
+  ✅ value_check: no native value sent
+  ✅ gas_estimate: 71,897 gas (~$0.001)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🚫 TRANSACTION BLOCKED
+   Recommendation: approve only the exact amount needed for this trade.
+   E.g., for swapping 500 USDC: approve(spender, 500000000) — 500 with 6 decimals.
+```

@@ -58,7 +58,7 @@ this skill first. One bad transaction can drain a wallet — this skill is the l
 Base score: 0
 
 + 50  Target address has no contract code (sending to EOA/empty)
-+ 40  Unlimited approval detected (approve MAX_UINT256)
++ 70  Unlimited approval detected (approve MAX_UINT256) — auto-promotes to HIGH/BLOCK
 + 35  Selector matches known dangerous function (ownership transfer, forced burn)
 + 30  Contract source code not verified on explorer
 + 20  Transaction simulation reverted
@@ -69,9 +69,18 @@ Risk Level:
   0–29:   SAFE     → PROCEED
  30–49:   LOW      → PROCEED with note
  50–69:   MEDIUM   → WARN user, require explicit confirmation
- 70–84:   HIGH     → strong warning, explain each risk, do not execute without user override
+ 70–84:   HIGH     → BLOCK — strong warning, do not execute
  85–100:  CRITICAL → BLOCK — do not proceed under any circumstances
 ```
+
+### Override Rules (apply AFTER base score calculation)
+
+These rules override the numeric score when triggered:
+
+1. **Any unlimited approval** → final score = `max(score, 70)` → forces BLOCK
+2. **Contract code = `0x`** → final score = `max(score, 85)` → forces CRITICAL BLOCK
+3. **Selector ∈ {`changeOwner`, `setOwner`, `upgradeTo`, `burn(address,uint256)`}** → final score = `max(score, 70)` → forces BLOCK
+4. **Simulation reverted AND value > 0** → final score = `max(score, 50)` → forces at least MEDIUM
 
 Always show all checks to the user, including passed ones. Transparency builds trust.
 
